@@ -41,7 +41,7 @@ jobs:
 
       - name: Setup Release
         id: setup_release
-        uses: LizardByte/setup-release-action@v2024.801.192524
+        uses: LizardByte/setup-release-action@v2024.919.143601
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -74,6 +74,8 @@ jobs:
   build_linux_flatpak:
     env:
       APP_ID: dev.lizardbyte.app.Sunshine
+      NODE_VERSION: "20"
+      PLATFORM_VERSION: "23.08"
     name: Linux Flatpak
     runs-on: ubuntu-22.04
     needs: [setup_release, setup_flatpak_matrix]
@@ -97,10 +99,30 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Dependencies Linux Flatpak
-        env:
-          PLATFORM_VERSION: "22.08"
+      - name: Setup node
+        id: node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install npm dependencies
         run: |
+          npm install --package-lock-only
+
+      - name: Debug package-lock.json
+        run: |
+          cat package-lock.json
+
+      - name: Setup python
+        id: python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Dependencies Linux Flatpak
+        run: |
+          python -m pip install ./packaging/linux/flatpak/deps/flatpak-builder-tools/node
+
           sudo apt-get update -y
           sudo apt-get install -y \
             cmake \
@@ -114,9 +136,19 @@ jobs:
             org.flatpak.Builder \
             org.freedesktop.Platform/${{ matrix.arch }}/${PLATFORM_VERSION} \
             org.freedesktop.Sdk/${{ matrix.arch }}/${PLATFORM_VERSION} \
-            org.freedesktop.Sdk.Extension.node18/${{ matrix.arch }}/${PLATFORM_VERSION} \
-            org.freedesktop.Sdk.Extension.vala/${{ matrix.arch }}/${PLATFORM_VERSION} \
+            org.freedesktop.Sdk.Extension.node${NODE_VERSION}/${{ matrix.arch }}/${PLATFORM_VERSION} \
             "
+
+          flatpak run org.flatpak.Builder --version
+
+      - name: flatpak node generator
+        # https://github.com/flatpak/flatpak-builder-tools/blob/master/node/README.md
+        run: |
+          flatpak-node-generator npm package-lock.json
+
+      - name: Debug generated-sources.json
+        run: |
+          cat generated-sources.json
 
       - name: Cache Flatpak build
         uses: actions/cache@v4
@@ -167,16 +199,29 @@ jobs:
       - name: Build Linux Flatpak
         working-directory: build
         run: |
-          sudo su $(whoami) -c "flatpak run org.flatpak.Builder --arch=${{ matrix.arch }} --repo=repo --force-clean \
+          sudo su $(whoami) -c "flatpak run org.flatpak.Builder \
+            --arch=${{ matrix.arch }} \
+            --force-clean \
+            --repo=repo \
+            --sandbox \
             --stop-at=cuda build-sunshine ${APP_ID}.yml"
           cp -r .flatpak-builder copy-of-flatpak-builder
-          sudo su $(whoami) -c "flatpak run org.flatpak.Builder --arch=${{ matrix.arch }} --repo=repo --force-clean \
+          sudo su $(whoami) -c "flatpak run org.flatpak.Builder \
+            --arch=${{ matrix.arch }} \
+            --force-clean \
+            --repo=repo \
+            --sandbox \
             build-sunshine ${APP_ID}.yml"
           rm -rf .flatpak-builder
           mv copy-of-flatpak-builder .flatpak-builder
-          sudo su $(whoami) -c "flatpak build-bundle --arch=${{ matrix.arch }} ./repo \
+          sudo su $(whoami) -c "flatpak build-bundle \
+            --arch=${{ matrix.arch }} \
+            ./repo \
             ../artifacts/sunshine_${{ matrix.arch }}.flatpak ${APP_ID}"
-          sudo su $(whoami) -c "flatpak build-bundle --runtime --arch=${{ matrix.arch }} ./repo \
+          sudo su $(whoami) -c "flatpak build-bundle \
+            --runtime \
+            --arch=${{ matrix.arch }} \
+            ./repo \
             ../artifacts/sunshine_debug_${{ matrix.arch }}.flatpak ${APP_ID}.Debug"
 
       - name: Lint Flatpak
@@ -229,6 +274,23 @@ jobs:
           # exit with the correct code
           exit $exit_code
 
+      - name: Package Flathub repo archive
+        # copy files required to generate the Flathub repo
+        if: ${{ matrix.arch == 'x86_64' }}
+        run: |
+          mkdir -p flathub/modules
+          cp ./build/generated-sources.json ./flathub/
+          cp ./build/package-lock.json ./flathub/
+          cp ./build/${APP_ID}.yml ./flathub/
+          cp ./build/${APP_ID}.metainfo.xml ./flathub/
+          cp ./packaging/linux/flatpak/README.md ./flathub/
+          cp ./packaging/linux/flatpak/flathub.json ./flathub/
+          cp -r ./packaging/linux/flatpak/modules/. ./flathub/modules/
+          # submodules will need to be handled in the workflow that creates the PR
+
+          # create the archive
+          tar -czf ./artifacts/flathub.tar.gz -C ./flathub .
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -237,11 +299,10 @@ jobs:
 
       - name: Create/Update GitHub Release
         if: ${{ needs.setup_release.outputs.publish_release == 'true' }}
-        uses: LizardByte/create-release-action@v2024.614.221009
+        uses: LizardByte/create-release-action@v2024.919.143026
         with:
           allowUpdates: true
           body: ${{ needs.setup_release.outputs.release_body }}
-          discussionCategory: announcements
           generateReleaseNotes: ${{ needs.setup_release.outputs.release_generate_release_notes }}
           name: ${{ needs.setup_release.outputs.release_tag }}
           prerelease: true
@@ -431,6 +492,7 @@ jobs:
             --exclude-noncode-lines \
             --exclude-throw-branches \
             --exclude-unreachable-branches \
+            --exclude '.*_deps/.*' \
             --exclude '.*tests/.*' \
             --exclude '.*third-party/.*' \
             --xml-pretty \
@@ -453,11 +515,10 @@ jobs:
 
       - name: Create/Update GitHub Release
         if: ${{ needs.setup_release.outputs.publish_release == 'true' }}
-        uses: LizardByte/create-release-action@v2024.614.221009
+        uses: LizardByte/create-release-action@v2024.919.143026
         with:
           allowUpdates: true
           body: ${{ needs.setup_release.outputs.release_body }}
-          discussionCategory: announcements
           generateReleaseNotes: ${{ needs.setup_release.outputs.release_generate_release_notes }}
           name: ${{ needs.setup_release.outputs.release_tag }}
           prerelease: true
@@ -472,8 +533,6 @@ jobs:
         include:
           # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories
           # while GitHub has larger macOS runners, they are not available for our repos :(
-          - os_version: "12"
-            os_name: "macos"
           - os_version: "13"
             os_name: "macos"
           - os_version: "14"
@@ -586,7 +645,7 @@ jobs:
       - name: Validate Homebrew Formula
         if: |
           matrix.release != true
-        uses: LizardByte/homebrew-release-action@v2024.809.31635
+        uses: LizardByte/homebrew-release-action@v2024.919.145818
         with:
           formula_file: ${{ github.workspace }}/homebrew/sunshine.rb
           git_email: ${{ secrets.GH_BOT_EMAIL }}
@@ -599,12 +658,11 @@ jobs:
         if: >-
           matrix.release &&
           needs.setup_release.outputs.publish_release == 'true'
-        uses: LizardByte/create-release-action@v2024.614.221009
+        uses: LizardByte/create-release-action@v2024.919.143026
         with:
           allowUpdates: true
           artifacts: '${{ github.workspace }}/homebrew/*'
           body: ${{ needs.setup_release.outputs.release_body }}
-          discussionCategory: announcements
           generateReleaseNotes: ${{ needs.setup_release.outputs.release_generate_release_notes }}
           name: ${{ needs.setup_release.outputs.release_tag }}
           prerelease: true
@@ -633,9 +691,10 @@ jobs:
 
       - name: Upload Homebrew Beta Formula
         if: >-
+          github.repository_owner == 'LizardByte' &&
           matrix.release &&
           needs.setup_release.outputs.publish_release == 'true'
-        uses: LizardByte/homebrew-release-action@v2024.809.31635
+        uses: LizardByte/homebrew-release-action@v2024.919.145818
         with:
           formula_file: ${{ github.workspace }}/homebrew/sunshine-beta.rb
           git_email: ${{ secrets.GH_BOT_EMAIL }}
@@ -652,9 +711,8 @@ jobs:
         include:
           # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories
           # while GitHub has larger macOS runners, they are not available for our repos :(
-          - os_version: "12"
-            release: true
           - os_version: "13"
+            release: true
           - os_version: "14"
     name: Macports (macOS-${{ matrix.os_version }})
     runs-on: macos-${{ matrix.os_version }}
@@ -868,6 +926,7 @@ jobs:
             --exclude-noncode-lines \
             --exclude-throw-branches \
             --exclude-unreachable-branches \
+            --exclude '.*${dir}/_deps/.*' \
             --exclude '.*${dir}/tests/.*' \
             --exclude '.*${dir}/third-party/.*' \
             --gcov-object-directory $(pwd) \
@@ -892,11 +951,10 @@ jobs:
 
       - name: Create/Update GitHub Release
         if: ${{ needs.setup_release.outputs.publish_release == 'true' }}
-        uses: LizardByte/create-release-action@v2024.614.221009
+        uses: LizardByte/create-release-action@v2024.919.143026
         with:
           allowUpdates: true
           body: ${{ needs.setup_release.outputs.release_body }}
-          discussionCategory: announcements
           generateReleaseNotes: ${{ needs.setup_release.outputs.release_generate_release_notes }}
           name: ${{ needs.setup_release.outputs.release_tag }}
           prerelease: true
@@ -1024,31 +1082,21 @@ jobs:
           msystem: ucrt64
           update: true
           install: >-
-            wget
-
-      - name: Update Windows dependencies
-        shell: msys2 {0}
-        run: |
-          # download working curl
-          wget https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-curl-8.8.0-1-any.pkg.tar.zst
-
-          # install dependencies
-          pacman -U --noconfirm mingw-w64-ucrt-x86_64-curl-8.8.0-1-any.pkg.tar.zst
-          pacman -Syu --noconfirm \
-            --ignore=mingw-w64-ucrt-x86_64-curl \
-            git \
-            mingw-w64-ucrt-x86_64-boost \
-            mingw-w64-ucrt-x86_64-cmake \
-            mingw-w64-ucrt-x86_64-cppwinrt \
-            mingw-w64-ucrt-x86_64-graphviz \
-            mingw-w64-ucrt-x86_64-miniupnpc \
-            mingw-w64-ucrt-x86_64-nlohmann-json \
-            mingw-w64-ucrt-x86_64-nodejs \
-            mingw-w64-ucrt-x86_64-nsis \
-            mingw-w64-ucrt-x86_64-onevpl \
-            mingw-w64-ucrt-x86_64-openssl \
-            mingw-w64-ucrt-x86_64-opus \
+            git
+            mingw-w64-ucrt-x86_64-boost
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-cppwinrt
+            mingw-w64-ucrt-x86_64-curl-winssl
+            mingw-w64-ucrt-x86_64-graphviz
+            mingw-w64-ucrt-x86_64-miniupnpc
+            mingw-w64-ucrt-x86_64-nlohmann-json
+            mingw-w64-ucrt-x86_64-nodejs
+            mingw-w64-ucrt-x86_64-nsis
+            mingw-w64-ucrt-x86_64-onevpl
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-opus
             mingw-w64-ucrt-x86_64-toolchain
+            wget
 
       - name: Install Doxygen
         # GCC compiled doxygen has issues when running graphviz
@@ -1107,7 +1155,7 @@ jobs:
             -DBUILD_WERROR=ON \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DSUNSHINE_ASSETS_DIR=assets \
-            -DSUNSHINE_PUBLSIHER_NAME='${{ github.repository_owner }}' \
+            -DSUNSHINE_PUBLISHER_NAME='${{ github.repository_owner }}' \
             -DSUNSHINE_PUBLISHER_WEBSITE='https://app.lizardbyte.dev' \
             -DSUNSHINE_PUBLISHER_ISSUE_URL='https://app.lizardbyte.dev/support' \
             -DTESTS_SOFTWARE_ENCODER_UNAVAILABLE='skip'
@@ -1141,11 +1189,12 @@ jobs:
         shell: msys2 {0}
         working-directory: build
         run: |
-          ${{ steps.python-path.outputs.python-path }} -m pip install gcovr
+          ${{ steps.python-path.outputs.python-path }} -m pip install "gcovr<8.0"
           ${{ steps.python-path.outputs.python-path }} -m gcovr -r .. \
             --exclude-noncode-lines \
             --exclude-throw-branches \
             --exclude-unreachable-branches \
+            --exclude '.*_deps/.*' \
             --exclude '.*tests/.*' \
             --exclude '.*third-party/.*' \
             --xml-pretty \
@@ -1187,11 +1236,10 @@ jobs:
 
       - name: Create/Update GitHub Release
         if: ${{ needs.setup_release.outputs.publish_release == 'true' }}
-        uses: LizardByte/create-release-action@v2024.614.221009
+        uses: LizardByte/create-release-action@v2024.919.143026
         with:
           allowUpdates: true
           body: ${{ needs.setup_release.outputs.release_body }}
-          discussionCategory: announcements
           generateReleaseNotes: ${{ needs.setup_release.outputs.release_generate_release_notes }}
           name: ${{ needs.setup_release.outputs.release_tag }}
           prerelease: true
