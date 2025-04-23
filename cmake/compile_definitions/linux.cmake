@@ -67,6 +67,11 @@ if(${SUNSHINE_ENABLE_CUDA})
 
         # message(STATUS "CUDA NVCC Flags: ${CUDA_NVCC_FLAGS}")
         message(STATUS "CUDA Architectures: ${CMAKE_CUDA_ARCHITECTURES}")
+    elseif(${CUDA_FAIL_ON_MISSING})
+        message(FATAL_ERROR
+                "CUDA not found.
+                If this is intentional, set '-DSUNSHINE_ENABLE_CUDA=OFF' or '-DCUDA_FAIL_ON_MISSING=OFF'"
+        )
     endif()
 endif()
 if(CUDA_FOUND)
@@ -82,8 +87,8 @@ endif()
 
 # drm
 if(${SUNSHINE_ENABLE_DRM})
-    find_package(LIBDRM)
-    find_package(LIBCAP)
+    find_package(LIBDRM REQUIRED)
+    find_package(LIBCAP REQUIRED)
 else()
     set(LIBDRM_FOUND OFF)
     set(LIBCAP_FOUND OFF)
@@ -95,10 +100,6 @@ if(LIBDRM_FOUND AND LIBCAP_FOUND)
     list(APPEND PLATFORM_TARGET_FILES
             "${CMAKE_SOURCE_DIR}/src/platform/linux/kmsgrab.cpp")
     list(APPEND SUNSHINE_DEFINITIONS EGL_NO_X11=1)
-elseif(NOT LIBDRM_FOUND)
-    message(WARNING "Missing libdrm")
-elseif(NOT LIBDRM_FOUND)
-    message(WARNING "Missing libcap")
 endif()
 
 # evdev
@@ -106,7 +107,7 @@ include(dependencies/libevdev_Sunshine)
 
 # vaapi
 if(${SUNSHINE_ENABLE_VAAPI})
-    find_package(Libva)
+    find_package(Libva REQUIRED)
 else()
     set(LIBVA_FOUND OFF)
 endif()
@@ -121,7 +122,7 @@ endif()
 
 # wayland
 if(${SUNSHINE_ENABLE_WAYLAND})
-    find_package(Wayland)
+    find_package(Wayland REQUIRED)
 else()
     set(WAYLAND_FOUND OFF)
 endif()
@@ -136,7 +137,8 @@ if(WAYLAND_FOUND)
     endif()
 
     GEN_WAYLAND("${WAYLAND_PROTOCOLS_DIR}" "unstable/xdg-output" xdg-output-unstable-v1)
-    GEN_WAYLAND("${CMAKE_SOURCE_DIR}/third-party/wlr-protocols" "unstable" wlr-export-dmabuf-unstable-v1)
+    GEN_WAYLAND("${WAYLAND_PROTOCOLS_DIR}" "unstable/linux-dmabuf" linux-dmabuf-unstable-v1)
+    GEN_WAYLAND("${CMAKE_SOURCE_DIR}/third-party/wlr-protocols" "unstable" wlr-screencopy-unstable-v1)
 
     include_directories(
             SYSTEM
@@ -144,7 +146,7 @@ if(WAYLAND_FOUND)
             ${CMAKE_BINARY_DIR}/generated-src
     )
 
-    list(APPEND PLATFORM_LIBRARIES ${WAYLAND_LIBRARIES})
+    list(APPEND PLATFORM_LIBRARIES ${WAYLAND_LIBRARIES} gbm)
     list(APPEND PLATFORM_TARGET_FILES
             "${CMAKE_SOURCE_DIR}/src/platform/linux/wlgrab.cpp"
             "${CMAKE_SOURCE_DIR}/src/platform/linux/wayland.h"
@@ -153,7 +155,7 @@ endif()
 
 # x11
 if(${SUNSHINE_ENABLE_X11})
-    find_package(X11)
+    find_package(X11 REQUIRED)
 else()
     set(X11_FOUND OFF)
 endif()
@@ -187,10 +189,9 @@ if(${SUNSHINE_ENABLE_TRAY})
     endif()
     pkg_check_modules(LIBNOTIFY libnotify)
     if(NOT APPINDICATOR_FOUND OR NOT LIBNOTIFY_FOUND)
-        set(SUNSHINE_TRAY 0)
-        message(WARNING "Missing appindicator or libnotify, disabling tray icon")
         message(STATUS "APPINDICATOR_FOUND: ${APPINDICATOR_FOUND}")
         message(STATUS "LIBNOTIFY_FOUND: ${LIBNOTIFY_FOUND}")
+        message(FATAL_ERROR "Couldn't find either appindicator or libnotify")
     else()
         include_directories(SYSTEM ${APPINDICATOR_INCLUDE_DIRS} ${LIBNOTIFY_INCLUDE_DIRS})
         link_directories(${APPINDICATOR_LIBRARY_DIRS} ${LIBNOTIFY_LIBRARY_DIRS})
@@ -198,34 +199,42 @@ if(${SUNSHINE_ENABLE_TRAY})
         list(APPEND PLATFORM_TARGET_FILES "${CMAKE_SOURCE_DIR}/third-party/tray/src/tray_linux.c")
         list(APPEND SUNSHINE_EXTERNAL_LIBRARIES ${APPINDICATOR_LIBRARIES} ${LIBNOTIFY_LIBRARIES})
     endif()
+
+    # flatpak icons must be prefixed with the app id or they will not be included in the flatpak
+    if(${SUNSHINE_BUILD_FLATPAK})
+        set(SUNSHINE_TRAY_PREFIX "${PROJECT_FQDN}")
+    else()
+        set(SUNSHINE_TRAY_PREFIX "sunshine")
+    endif()
+    list(APPEND SUNSHINE_DEFINITIONS SUNSHINE_TRAY_PREFIX="${SUNSHINE_TRAY_PREFIX}")
 else()
     set(SUNSHINE_TRAY 0)
     message(STATUS "Tray icon disabled")
 endif()
 
-if(${SUNSHINE_ENABLE_TRAY} AND ${SUNSHINE_TRAY} EQUAL 0 AND SUNSHINE_REQUIRE_TRAY)
-    message(FATAL_ERROR "Tray icon is required")
+# These need to be set before adding the inputtino subdirectory in order for them to be picked up
+set(LIBEVDEV_CUSTOM_INCLUDE_DIR "${EVDEV_INCLUDE_DIR}")
+set(LIBEVDEV_CUSTOM_LIBRARY "${EVDEV_LIBRARY}")
+
+add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/inputtino")
+list(APPEND SUNSHINE_EXTERNAL_LIBRARIES inputtino::libinputtino)
+file(GLOB_RECURSE INPUTTINO_SOURCES
+        ${CMAKE_SOURCE_DIR}/src/platform/linux/input/inputtino*.h
+        ${CMAKE_SOURCE_DIR}/src/platform/linux/input/inputtino*.cpp)
+list(APPEND PLATFORM_TARGET_FILES ${INPUTTINO_SOURCES})
+
+# build libevdev before the libinputtino target
+if(EXTERNAL_PROJECT_LIBEVDEV_USED)
+    add_dependencies(libinputtino libevdev)
 endif()
 
-if(${SUNSHINE_USE_LEGACY_INPUT})  # TODO: Remove this legacy option after the next stable release
-    list(APPEND PLATFORM_TARGET_FILES "${CMAKE_SOURCE_DIR}/src/platform/linux/input/legacy_input.cpp")
-else()
-    # These need to be set before adding the inputtino subdirectory in order for them to be picked up
-    set(LIBEVDEV_CUSTOM_INCLUDE_DIR "${EVDEV_INCLUDE_DIR}")
-    set(LIBEVDEV_CUSTOM_LIBRARY "${EVDEV_LIBRARY}")
-
-    add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/inputtino")
-    list(APPEND SUNSHINE_EXTERNAL_LIBRARIES inputtino::libinputtino)
-    file(GLOB_RECURSE INPUTTINO_SOURCES
-            ${CMAKE_SOURCE_DIR}/src/platform/linux/input/inputtino*.h
-            ${CMAKE_SOURCE_DIR}/src/platform/linux/input/inputtino*.cpp)
-    list(APPEND PLATFORM_TARGET_FILES ${INPUTTINO_SOURCES})
-
-    # build libevdev before the libinputtino target
-    if(EXTERNAL_PROJECT_LIBEVDEV_USED)
-        add_dependencies(libinputtino libevdev)
-    endif()
-endif()
+# AppImage and Flatpak
+if (${SUNSHINE_BUILD_APPIMAGE})
+    list(APPEND SUNSHINE_DEFINITIONS SUNSHINE_BUILD_APPIMAGE=1)
+endif ()
+if (${SUNSHINE_BUILD_FLATPAK})
+    list(APPEND SUNSHINE_DEFINITIONS SUNSHINE_BUILD_FLATPAK=1)
+endif ()
 
 list(APPEND PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/platform/linux/publish.cpp"

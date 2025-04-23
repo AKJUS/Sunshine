@@ -22,9 +22,9 @@ class @PROJECT_NAME@ < Formula
     end
   end
 
-  option "with-docs-off", "Disable docs"
-  option "with-dynamic-boost", "Dynamically link Boost libraries"
-  option "without-dynamic-boost", "Statically link Boost libraries" # default option
+  option "with-docs", "Enable docs"
+  option "with-static-boost", "Enable static link of Boost libraries"
+  option "without-static-boost", "Disable static link of Boost libraries" # default option
 
   depends_on "cmake" => :build
   depends_on "doxygen" => :build
@@ -43,7 +43,6 @@ class @PROJECT_NAME@ < Formula
     depends_on "libdrm"
     depends_on "libnotify"
     depends_on "libva"
-    depends_on "libvdpau"
     depends_on "libx11"
     depends_on "libxcb"
     depends_on "libxcursor"
@@ -52,6 +51,7 @@ class @PROJECT_NAME@ < Formula
     depends_on "libxinerama"
     depends_on "libxrandr"
     depends_on "libxtst"
+    depends_on "mesa"
     depends_on "numactl"
     depends_on "pulseaudio"
     depends_on "systemd"
@@ -65,33 +65,37 @@ class @PROJECT_NAME@ < Formula
 
     args = %W[
       -DBUILD_WERROR=ON
+      -DCMAKE_CXX_STANDARD=20
       -DCMAKE_INSTALL_PREFIX=#{prefix}
       -DHOMEBREW_ALLOW_FETCHCONTENT=ON
       -DOPENSSL_ROOT_DIR=#{Formula["openssl"].opt_prefix}
       -DSUNSHINE_ASSETS_DIR=sunshine/assets
       -DSUNSHINE_BUILD_HOMEBREW=ON
       -DSUNSHINE_ENABLE_TRAY=OFF
-      -DSUNSHINE_PUBLSIHER_NAME='LizardByte'
+      -DSUNSHINE_PUBLISHER_NAME='LizardByte'
       -DSUNSHINE_PUBLISHER_WEBSITE='https://app.lizardbyte.dev'
       -DSUNSHINE_PUBLISHER_ISSUE_URL='https://app.lizardbyte.dev/support'
     ]
 
-    if build.with? "docs-off"
-      ohai "Building docs: disabled"
-      args << "-DBUILD_DOCS=OFF"
-    else
+    if build.with? "docs"
       ohai "Building docs: enabled"
       args << "-DBUILD_DOCS=ON"
+    else
+      ohai "Building docs: disabled"
+      args << "-DBUILD_DOCS=OFF"
     end
 
-    if build.without? "dynamic-boost"
+    if build.without? "static-boost"
+      args << "-DBOOST_USE_STATIC=OFF"
+      ohai "Disabled statically linking Boost libraries"
+    else
       args << "-DBOOST_USE_STATIC=ON"
-      ohai "Statically linking Boost libraries"
+      ohai "Enabled statically linking Boost libraries"
 
       unless Formula["icu4c"].any_version_installed?
         odie <<~EOS
           icu4c must be installed to link against static Boost libraries,
-          either install icu4c or use brew install sunshine --with-dynamic-boost instead
+          either install icu4c or use brew install sunshine --with-static-boost instead
         EOS
       end
       ENV.append "CXXFLAGS", "-I#{Formula["icu4c"].opt_include}"
@@ -99,10 +103,9 @@ class @PROJECT_NAME@ < Formula
       ENV.append "LDFLAGS", "-L#{icu4c_lib_path}"
       ENV["LIBRARY_PATH"] = icu4c_lib_path
       ohai "Linking against ICU libraries at: #{icu4c_lib_path}"
-    else
-      args << "-DBOOST_USE_STATIC=OFF"
-      ohai "Dynamically linking Boost libraries"
     end
+
+    args << "-DCUDA_FAIL_ON_MISSING=OFF" if OS.linux?
 
     system "cmake", "-S", ".", "-B", "build", *std_cmake_args, *args
 
@@ -112,6 +115,9 @@ class @PROJECT_NAME@ < Formula
 
       bin.install "tests/test_sunshine"
     end
+
+    # codesign the binary on intel macs
+    system "codesign", "-s", "-", "--force", "--deep", bin/"sunshine" if OS.mac? && Hardware::CPU.intel?
 
     bin.install "src_assets/linux/misc/postinst" if OS.linux?
   end
@@ -125,7 +131,7 @@ class @PROJECT_NAME@ < Formula
       Thanks for installing @PROJECT_NAME@!
 
       To get started, review the documentation at:
-        https://docs.lizardbyte.dev/projects/sunshine/en/latest/
+        https://docs.lizardbyte.dev/projects/sunshine
     EOS
 
     if OS.linux?

@@ -3,6 +3,7 @@ set -e
 
 # Default value for arguments
 appimage_build=0
+num_processors=$(nproc)
 publisher_name="Third Party Publisher"
 publisher_website=""
 publisher_issue_url="https://app.lizardbyte.dev/support"
@@ -27,6 +28,7 @@ Options:
   -h, --help               Display this help message.
   -s, --sudo-off           Disable sudo command.
   --appimage-build         Compile for AppImage, this will not create the AppImage, just the executable.
+  --num-processors         The number of processors to use for compilation. Default is the value of 'nproc'.
   --publisher-name         The name of the publisher (not developer) of the application.
   --publisher-website      The URL of the publisher's website.
   --publisher-issue-url    The URL of the publisher's support site or issue tracker.
@@ -52,6 +54,9 @@ while getopts ":hs-:" opt; do
         appimage-build)
           appimage_build=1
           skip_libva=1
+          ;;
+        num-processors=*)
+          num_processors="${OPTARG#*=}"
           ;;
         publisher-name=*)
           publisher_name="${OPTARG#*=}"
@@ -85,7 +90,7 @@ shift $((OPTIND -1))
 # dependencies array to build out
 dependencies=()
 
-function add_debain_based_deps() {
+function add_debian_based_deps() {
   dependencies+=(
     "bison"  # required if we need to compile doxygen
     "build-essential"
@@ -100,13 +105,13 @@ function add_debain_based_deps() {
     "libcurl4-openssl-dev"
     "libdrm-dev"  # KMS
     "libevdev-dev"
+    "libgbm-dev"
     "libminiupnpc-dev"
     "libnotify-dev"
     "libnuma-dev"
     "libopus-dev"
     "libpulse-dev"
     "libssl-dev"
-    "libvdpau-dev"
     "libwayland-dev"  # Wayland
     "libx11-dev"  # X11
     "libxcb-shm0-dev"  # X11
@@ -129,8 +134,8 @@ function add_debain_based_deps() {
   fi
 }
 
-function add_debain_deps() {
-  add_debain_based_deps
+function add_debian_deps() {
+  add_debian_based_deps
   dependencies+=(
     "libayatana-appindicator3-dev"
   )
@@ -142,7 +147,7 @@ function add_ubuntu_deps() {
     ${sudo_cmd} add-apt-repository ppa:ubuntu-toolchain-r/test -y
   fi
 
-  add_debain_based_deps
+  add_debian_based_deps
   dependencies+=(
     "libappindicator3-dev"
   )
@@ -152,8 +157,8 @@ function add_fedora_deps() {
   dependencies+=(
     "cmake"
     "doxygen"
-    "gcc"
-    "g++"
+    "gcc${gcc_version}"
+    "gcc${gcc_version}-c++"
     "git"
     "graphviz"
     "libappindicator-gtk3-devel"
@@ -162,7 +167,6 @@ function add_fedora_deps() {
     "libdrm-devel"
     "libevdev-devel"
     "libnotify-devel"
-    "libvdpau-devel"
     "libX11-devel"  # X11
     "libxcb-devel"  # X11
     "libXcursor-devel"  # X11
@@ -172,6 +176,7 @@ function add_fedora_deps() {
     "libXrandr-devel"  # X11
     "libXtst-devel"  # X11
     "mesa-libGL-devel"
+    "mesa-libgbm-devel"
     "miniupnpc-devel"
     "ninja-build"
     "npm"
@@ -299,12 +304,12 @@ function run_install() {
   $package_update_command
 
   if [ "$distro" == "debian" ]; then
-    add_debain_deps
+    add_debian_deps
   elif [ "$distro" == "ubuntu" ]; then
     add_ubuntu_deps
   elif [ "$distro" == "fedora" ]; then
     add_fedora_deps
-    dnf group install "Development Tools" -y
+    ${sudo_cmd} dnf group install "$dev_tools_group" -y
   fi
 
   # Install the dependencies
@@ -369,7 +374,7 @@ function run_install() {
       tar -xzf "${build_dir}/doxygen.tar.gz"
       cd "doxygen-${doxygen_min}"
       cmake -DCMAKE_BUILD_TYPE=Release -G="Ninja" -B="build" -S="."
-      ninja -C "build"
+      ninja -C "build" -j"${num_processors}"
       ninja -C "build" install
     else
       echo "Doxygen version too low, skipping docs"
@@ -440,24 +445,36 @@ if grep -q "Debian GNU/Linux 12 (bookworm)" /etc/os-release; then
   cuda_build="525.60.13"
   gcc_version="12"
   nvm_node=0
-elif grep -q "PLATFORM_ID=\"platform:f39\"" /etc/os-release; then
-  distro="fedora"
-  version="39"
-  package_update_command="${sudo_cmd} dnf update -y"
-  package_install_command="${sudo_cmd} dnf install -y"
-  cuda_version="12.4.0"
-  cuda_build="550.54.14"
-  gcc_version="13"
-  nvm_node=0
 elif grep -q "PLATFORM_ID=\"platform:f40\"" /etc/os-release; then
   distro="fedora"
   version="40"
   package_update_command="${sudo_cmd} dnf update -y"
   package_install_command="${sudo_cmd} dnf install -y"
-  cuda_version=
-  cuda_build=
+  cuda_version=12.6.3
+  cuda_build=560.35.05
   gcc_version="13"
   nvm_node=0
+  dev_tools_group="Development Tools"
+elif grep -q "PLATFORM_ID=\"platform:f41\"" /etc/os-release; then
+  distro="fedora"
+  version="41"
+  package_update_command="${sudo_cmd} dnf update -y"
+  package_install_command="${sudo_cmd} dnf install -y"
+  cuda_version=12.6.3
+  cuda_build=560.35.05
+  gcc_version="13"
+  nvm_node=0
+  dev_tools_group="development-tools"
+elif grep -q "PLATFORM_ID=\"platform:f42\"" /etc/os-release; then
+  distro="fedora"
+  version="42"
+  package_update_command="${sudo_cmd} dnf update -y"
+  package_install_command="${sudo_cmd} dnf install -y"
+  cuda_version=12.8.1
+  cuda_build=570.124.06
+  gcc_version="14"
+  nvm_node=0
+  dev_tools_group="development-tools"
 elif grep -q "Ubuntu 22.04" /etc/os-release; then
   distro="ubuntu"
   version="22.04"

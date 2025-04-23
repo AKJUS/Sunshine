@@ -23,6 +23,9 @@ If you forgot your credentials to the web UI, try this.
 @tip{Don't forget to replace `{new-username}` and `{new-password}` with your new credentials.
 Do not include the curly braces.}
 
+### Unusual Mouse Behavior
+If you experience unusual mouse behavior, try attaching a physical mouse to the Sunshine host.
+
 ### Web UI Access
 Can't access the web UI?
 
@@ -115,6 +118,16 @@ system. You may also want to enable decoders, however that is not required for S
 ```
 }
 
+### Input not working
+After installation, the `udev` rules need to be reloaded. Our post-install script tries to do this for you
+automatically, but if it fails you may need to restart your system.
+
+If the input is still not working, you may need to add your user to the `input` group.
+
+```bash
+sudo usermod -aG input $USER
+```
+
 @note{Other build options are listed in the
 [meson options](https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/meson_options.txt) file.}
 
@@ -190,11 +203,14 @@ has. You may get permission denied errors when attempting to launch a game or ap
 You will need to modify the security permissions on your disk. Ensure that user/principal SYSTEM has full
 permissions on the disk.
 
+### Stuttering
+If you experience stuttering using NVIDIA, try disabling `vsync:fast` in the NVIDIA Control Panel.
+
 <div class="section_buttons">
 
-| Previous                                    |                    Next |
-|:--------------------------------------------|------------------------:|
-| [Performance Tuning](performance_tuning.md) | [Building](building.md) |
+| Previous      |                    Next |
+|:--------------|------------------------:|
+| [API](api.md) | [Building](building.md) |
 
 </div>
 

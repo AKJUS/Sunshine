@@ -35,12 +35,6 @@ endif ()
 
 set(TEST_DEFINITIONS)  # list will be appended as needed
 
-# make sure TESTS_SOFTWARE_ENCODER_UNAVAILABLE is set to "fail" or "skip"
-if (NOT (TESTS_SOFTWARE_ENCODER_UNAVAILABLE STREQUAL "fail" OR TESTS_SOFTWARE_ENCODER_UNAVAILABLE STREQUAL "skip"))
-    set(TESTS_SOFTWARE_ENCODER_UNAVAILABLE "fail")
-endif ()
-list(APPEND TEST_DEFINITIONS TESTS_SOFTWARE_ENCODER_UNAVAILABLE="${TESTS_SOFTWARE_ENCODER_UNAVAILABLE}")  # fail/skip
-
 # this indicates we're building tests in case sunshine needs to adjust some code or add private tests
 list(APPEND TEST_DEFINITIONS SUNSHINE_TESTS)
 
@@ -76,4 +70,3 @@ if (WIN32)
     # this fixes libcurl linking errors when using non MSYS2 version of CMake
     set_target_properties(${PROJECT_NAME} PROPERTIES LINK_SEARCH_START_STATIC 1)
 endif ()
-

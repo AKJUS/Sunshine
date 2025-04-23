@@ -51,7 +51,6 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS "\
             libpulse0, \
             libva2, \
             libva-drm2, \
-            libvdpau1, \
             libwayland-client0, \
             libx11-6, \
             miniupnpc, \
@@ -64,7 +63,6 @@ set(CPACK_RPM_PACKAGE_REQUIRES "\
             libevdev >= 1.5.6, \
             libopusenc >= 0.2.1, \
             libva >= 2.14.0, \
-            libvdpau >= 1.5, \
             libwayland-client >= 1.20.0, \
             libX11 >= 1.7.3.1, \
             miniupnpc >= 2.2.4, \
@@ -102,15 +100,31 @@ endif()
 
 # tray icon
 if(${SUNSHINE_TRAY} STREQUAL 1)
-    install(FILES "${CMAKE_SOURCE_DIR}/sunshine.svg"
-            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status"
-            RENAME "sunshine-tray.svg")
-    install(FILES "${SUNSHINE_SOURCE_ASSETS_DIR}/common/assets/web/public/images/sunshine-playing.svg"
-            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status")
-    install(FILES "${SUNSHINE_SOURCE_ASSETS_DIR}/common/assets/web/public/images/sunshine-pausing.svg"
-            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status")
-    install(FILES "${SUNSHINE_SOURCE_ASSETS_DIR}/common/assets/web/public/images/sunshine-locked.svg"
-            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status")
+    if(NOT ${SUNSHINE_BUILD_FLATPAK})
+        install(FILES "${CMAKE_SOURCE_DIR}/sunshine.svg"
+                DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status"
+                RENAME "sunshine-tray.svg")
+        install(FILES "${SUNSHINE_SOURCE_ASSETS_DIR}/common/assets/web/public/images/sunshine-playing.svg"
+                DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status")
+        install(FILES "${SUNSHINE_SOURCE_ASSETS_DIR}/common/assets/web/public/images/sunshine-pausing.svg"
+                DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status")
+        install(FILES "${SUNSHINE_SOURCE_ASSETS_DIR}/common/assets/web/public/images/sunshine-locked.svg"
+                DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status")
+    else()
+        # flatpak icons must be prefixed with the app id or they will not be included in the flatpak
+        install(FILES "${CMAKE_SOURCE_DIR}/sunshine.svg"
+                DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status"
+                RENAME "${PROJECT_FQDN}-tray.svg")
+        install(FILES "${SUNSHINE_SOURCE_ASSETS_DIR}/common/assets/web/public/images/sunshine-playing.svg"
+                DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status"
+                RENAME "${PROJECT_FQDN}-playing.svg")
+        install(FILES "${SUNSHINE_SOURCE_ASSETS_DIR}/common/assets/web/public/images/sunshine-pausing.svg"
+                DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status"
+                RENAME "${PROJECT_FQDN}-pausing.svg")
+        install(FILES "${SUNSHINE_SOURCE_ASSETS_DIR}/common/assets/web/public/images/sunshine-locked.svg"
+                DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/status"
+                RENAME "${PROJECT_FQDN}-locked.svg")
+    endif()
 
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "\
                     ${CPACK_DEBIAN_PACKAGE_DEPENDS}, \
@@ -130,15 +144,8 @@ else()
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/sunshine.desktop"
             DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
             RENAME "${PROJECT_FQDN}.desktop")
-    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/sunshine_kms.desktop"
-            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
-            RENAME "${PROJECT_FQDN}_kms.desktop")
 endif()
-if(${SUNSHINE_BUILD_FLATPAK})
-    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/sunshine_terminal.desktop"
-            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
-            RENAME "${PROJECT_FQDN}_terminal.desktop")
-elseif(NOT ${SUNSHINE_BUILD_APPIMAGE})
+if(NOT ${SUNSHINE_BUILD_APPIMAGE} AND NOT ${SUNSHINE_BUILD_FLATPAK})
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/sunshine_terminal.desktop"
             DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
 endif()
